@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Arduino Icon Editor Pro</title>
+  <style>
+    :root {
+      --bg: #12121a; --panel: #1e1e2e; --border: #3a3a50;
+      --accent: #4cc9f0; --active: #66e0ff; --text: #e0e0e0;
+      --cell-inactive: #2a2a3c; --cell-hover: #3a3a50;
+    }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg); color: var(--text);
+      margin: 0; padding: 20px;
+      display: flex; flex-direction: column; align-items: center; gap: 16px;
+    }
+    .controls {
+      display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+      background: var(--panel); padding: 12px; border-radius: 10px;
+      border: 1px solid var(--border); width: 100%; max-width: 940px; box-sizing: border-box;
+    }
+    button, input, select, label {
+      background: #252538; color: var(--text);
+      border: 1px solid var(--border); padding: 7px 12px; border-radius: 6px;
+      cursor: pointer; font-size: 14px; transition: all 0.2s;
+    }
+    button:hover, label:hover { border-color: var(--accent); background: #2d2d42; }
+    button:active { transform: scale(0.96); }
+    button.active { background: var(--accent); color: #111; font-weight: 600; border-color: var(--active); }
+    input[type="number"], input[type="text"] { font-family: monospace; }
+    input[type="text"] { width: 120px; text-align: left; background: #111; }
+    input[type="file"] { display: none; }
+    select { min-width: 200px; cursor: pointer; }
+    label { display: flex; align-items: center; gap: 6px; font-size: 0.85em; cursor: pointer; }
+    input[type="checkbox"] { cursor: pointer; accent-color: var(--accent); }
+    
+    .shift-pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+    .shift-pad button { padding: 4px 8px; font-size: 16px; }
+    .shift-pad .empty { visibility: hidden; }
+    
+    .workspace {
+      display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap;
+      justify-content: center; width: 100%; max-width: 940px;
+    }
+    .grid-box {
+      background: var(--panel); padding: 15px; border-radius: 10px;
+      border: 1px solid var(--border);
+    }
+    #icon-grid {
+      display: grid; gap: 1px; background: #0f0f17; padding: 6px;
+      border-radius: 6px; user-select: none; touch-action: none;
+    }
+    .cell {
+      aspect-ratio: 1; background: var(--cell-inactive);
+      cursor: pointer; border-radius: 2px; transition: background 0.08s;
+    }
+    .cell:hover { background: var(--cell-hover); }
+    .cell.active {
+      background: var(--active);
+      box-shadow: 0 0 4px var(--accent), inset 0 0 2px rgba(255,255,255,0.2);
+      border: 1px solid rgba(255,255,255,0.2);
+    }
+    
+    .preview-box {
+      background: var(--panel); padding: 15px; border-radius: 10px;
+      border: 1px solid var(--border); text-align: center; min-width: 160px;
+      display: flex; flex-direction: column; align-items: center;
+    }
+    #preview-canvas {
+      background: #000; border: 1px solid #444;
+      image-rendering: pixelated; image-rendering: crisp-edges;
+    }
+    .zoom-info { font-size: 0.85em; color: #888; margin-top: 8px; display: flex; gap: 6px; align-items: center; }
+    
+    .code-box {
+      width: 100%; max-width: 940px;
+      background: var(--panel); padding: 15px; border-radius: 10px; border: 1px solid var(--border); box-sizing: border-box;
+    }
+    textarea {
+      width: 100%; height: 160px; font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 13px; background: #0d0d14; color: #a8e6cf;
+      border: 1px solid var(--border); padding: 12px; border-radius: 6px;
+      resize: vertical; box-sizing: border-box;
+    }
+    .actions { display: flex; gap: 8px; margin-top: 10px; }
+    .divider { width: 1px; height: 28px; background: var(--border); margin: 0 6px; }
+    .hint { font-size: 0.8em; color: #777; margin-top: 8px; line-height: 1.5; }
+    .hint code { background: #222; padding: 2px 4px; border-radius: 3px; color: #aaa; }
+  </style>
+</head>
+<body>
+
+  <input type="file" id="img-upload" accept="image/*">
+  <div class="controls">
+    <button class="mode-btn active" data-w="8" data-h="8">8×8</button>
+    <button class="mode-btn" data-w="16" data-h="16">16×16</button>
+    <button class="mode-btn" data-w="0" data-h="0">∞ Произв.</button>
+    <span id="custom-size" style="display:none; align-items:center; gap:4px;">
+      <input type="number" id="cust-w" min="1" max="128" value="32" placeholder="W">
+      <span>×</span>
+      <input type="number" id="cust-h" min="1" max="128" value="32" placeholder="H">
+    </span>
+    <button onclick="applySize()">Прим.</button>
+    <div class="divider"></div>
+    
+    <span style="color:#888; font-size:0.9em;">Имя:</span>
+    <input type="text" id="icon-name" value="my_icon">
+    
+    <div class="divider"></div>
+    <span style="color:#888; font-size:0.9em;">Формат:</span>
+    <select id="pack-format" onchange="exportCode()">
+      <option value="h_msb">Горизонт. MSB (Adafruit, TFT_eSPI)</option>
+      <option value="h_lsb">Горизонт. LSB (XBM-совместимый)</option>
+      <option value="v_msb">Вертикаль. MSB (SSD1306 Page Mode)</option>
+    </select>
+    <label><input type="checkbox" id="transpose-export" onchange="exportCode()"> Повернуть 90°</label>
+    
+    <div class="divider"></div>
+    <div class="shift-pad">
+      <button class="empty">·</button>
+      <button onclick="shiftGrid(0, -1)" title="Сдвиг ↑">↑</button>
+      <button class="empty">·</button>
+      <button onclick="shiftGrid(-1, 0)" title="Сдвиг ←">←</button>
+      <button class="empty">·</button>
+      <button onclick="shiftGrid(1, 0)" title="Сдвиг →">→</button>
+      <button class="empty">·</button>
+      <button onclick="shiftGrid(0, 1)" title="Сдвиг ↓">↓</button>
+      <button class="empty">·</button>
+    </div>
+    <div class="divider"></div>
+    <button onclick="document.getElementById('img-upload').click()">🖼 Загрузить</button>
+    <button onclick="clearGrid()">🗑 Очистить</button>
+    <button onclick="invertGrid()">🔄 Инверт.</button>
+  </div>
+
+  <div class="workspace">
+    <div class="grid-box">
+      <div id="icon-grid"></div>
+    </div>
+    <div class="preview-box">
+      <canvas id="preview-canvas"></canvas>
+      <div class="zoom-info">
+        <span id="dim-label">8×8 px</span> |
+        <select id="zoom" onchange="applyZoom()"><option value="1">1:1</option><option value="2">2x</option><option value="4" selected>4x</option><option value="8">8x</option></select>
+      </div>
+    </div>
+  </div>
+
+  <div class="code-box">
+    <textarea id="code-output" readonly></textarea>
+    <div class="actions">
+      <button onclick="copyCode()">📋 Копировать</button>
+      <button onclick="downloadCode()">💾 Скачать .h</button>
+    </div>
+    <div class="hint">
+      💡 <strong>SSD1306 128×64:</strong> Если иконка повёрнута на 90°, включите <code>☑ Повернуть 90°</code> или смените формат на <code>Горизонт. MSB</code> (библиотека <code>drawBitmap</code> сама преобразует данные).
+    </div>
+  </div>
+
+<script>
+  let W = 8, H = 8;
+  let grid = [];
+  let isDrawing = false;
+  let drawVal = 1;
+  let currentZoom = 4;
+
+  const gridEl = document.getElementById('icon-grid');
+  const previewCanvas = document.getElementById('preview-canvas');
+  const ctx = previewCanvas.getContext('2d');
+  const codeOutput = document.getElementById('code-output');
+  const dimLabel = document.getElementById('dim-label');
+  const nameInput = document.getElementById('icon-name');
+  const formatSel = document.getElementById('pack-format');
+  const transposeChk = document.getElementById('transpose-export');
+
+  nameInput.addEventListener('input', exportCode);
+
+  function initGrid(w, h) {
+    W = Math.max(1, Math.min(128, w));
+    H = Math.max(1, Math.min(128, h));
+    grid = Array.from({ length: H }, () => Array(W).fill(0));
+    const cellSize = Math.max(6, Math.min(32, 360 / Math.max(W, H)));
+    gridEl.style.gridTemplateColumns = `repeat(${W}, ${cellSize}px)`;
+    buildGridDOM(); drawPreview(); exportCode();
+  }
+
+  function buildGridDOM() {
+    gridEl.innerHTML = '';
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const cell = document.createElement('div');
+        cell.className = `cell ${grid[y][x] ? 'active' : ''}`;
+        
+        const toggle = (e) => {
+          e.preventDefault();
+          isDrawing = true;
+          drawVal = grid[y][x] ? 0 : 1;
+          setPixel(x, y, drawVal);
+        };
+        const move = () => { if (isDrawing) setPixel(x, y, drawVal); };
+        
+        cell.addEventListener('mousedown', toggle);
+        cell.addEventListener('mouseenter', move);
+        cell.addEventListener('touchstart', toggle, {passive: false});
+        cell.addEventListener('touchmove', (e) => {
+          const t = e.touches[0];
+          const el = document.elementFromPoint(t.clientX, t.clientY);
+          if (el?.classList.contains('cell')) el.dispatchEvent(new Event('mouseenter'));
+        }, {passive: false});
+        gridEl.appendChild(cell);
+      }
+    }
+  }
+
+  window.addEventListener('mouseup', () => isDrawing = false);
+  window.addEventListener('touchend', () => isDrawing = false);
+
+  function setPixel(x, y, val) {
+    if (x < 0 || x >= W || y < 0 || y >= H) return;
+    grid[y][x] = val;
+    const idx = y * W + x;
+    const cell = gridEl.children[idx];
+    val ? cell.classList.add('active') : cell.classList.remove('active');
+    drawPreview(); exportCode();
+  }
+
+  function shiftGrid(dx, dy) {
+    const newGrid = Array.from({ length: H }, () => Array(W).fill(0));
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const srcX = (x - dx + W) % W;
+        const srcY = (y - dy + H) % H;
+        newGrid[y][x] = grid[srcY][srcX];
+      }
+    }
+    grid = newGrid;
+    const cells = gridEl.children;
+    for (let i = 0; i < cells.length; i++) {
+      const y = Math.floor(i / W);
+      const x = i % W;
+      grid[y][x] ? cells[i].classList.add('active') : cells[i].classList.remove('active');
+    }
+    drawPreview(); exportCode();
+  }
+
+  function applyZoom() {
+    currentZoom = parseInt(document.getElementById('zoom').value);
+    drawPreview();
+  }
+
+  function drawPreview() {
+    previewCanvas.width = W;
+    previewCanvas.height = H;
+    previewCanvas.style.width = (W * currentZoom) + 'px';
+    previewCanvas.style.height = (H * currentZoom) + 'px';
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#4cc9f0';
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        if (grid[y][x]) ctx.fillRect(x, y, 1, 1);
+      }
+    }
+    dimLabel.textContent = `${W}×${H} px`;
+  }
+
+  function clearGrid() { initGrid(W, H); }
+  function invertGrid() {
+    for(let y=0;y<H;y++) for(let x=0;x<W;x++) grid[y][x]=1-grid[y][x];
+    buildGridDOM(); drawPreview(); exportCode();
+  }
+
+  document.getElementById('img-upload').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const img = new Image();
+    img.onload = () => {
+      const off = document.createElement('canvas');
+      off.width = W; off.height = H;
+      const cx = off.getContext('2d');
+      cx.imageSmoothingEnabled = false;
+      cx.drawImage(img, 0, 0, W, H);
+      const data = cx.getImageData(0, 0, W, H).data;
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const i = (y * W + x) * 4;
+          const lum = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2];
+          grid[y][x] = (data[i+3] > 100 && lum > 128) ? 1 : 0;
+        }
+      }
+      const cells = gridEl.children;
+      for(let i=0; i<cells.length; i++) {
+        const y = Math.floor(i/W), x = i%W;
+        grid[y][x] ? cells[i].classList.add('active') : cells[i].classList.remove('active');
+      }
+      drawPreview(); exportCode();
+    };
+    img.src = URL.createObjectURL(file);
+    e.target.value = '';
+  });
+
+  function getPixel(x, y, transpose) {
+    if (transpose) {
+      // Транспонирование (поворот 90° CW при экспорте)
+      // new_x = H - 1 - y, new_y = x
+      const nx = H - 1 - y;
+      const ny = x;
+      return (nx >= 0 && nx < W && ny >= 0 && ny < H) ? grid[ny][nx] : 0;
+    }
+    return (x >= 0 && x < W && y >= 0 && y < H) ? grid[y][x] : 0;
+  }
+
+  function packBytes(format, transpose) {
+    const bytes = [];
+    if (format === 'h_msb') {
+      const bpr = Math.ceil(W / 8);
+      for (let y = 0; y < H; y++) {
+        for (let b = 0; b < bpr; b++) {
+          let val = 0;
+          for (let bit = 0; bit < 8; bit++) {
+            if (getPixel(b * 8 + bit, y, transpose)) val |= (1 << (7 - bit));
+          }
+          bytes.push(val);
+        }
+      }
+    } else if (format === 'h_lsb') {
+      const bpr = Math.ceil(W / 8);
+      for (let y = 0; y < H; y++) {
+        for (let b = 0; b < bpr; b++) {
+          let val = 0;
+          for (let bit = 0; bit < 8; bit++) {
+            if (getPixel(b * 8 + bit, y, transpose)) val |= (1 << bit);
+          }
+          bytes.push(val);
+        }
+      }
+    } else if (format === 'v_msb') {
+      const pages = Math.ceil(H / 8);
+      for (let p = 0; p < pages; p++) {
+        for (let x = 0; x < W; x++) {
+          let val = 0;
+          for (let bit = 0; bit < 8; bit++) {
+            if (getPixel(x, p * 8 + bit, transpose)) val |= (1 << (7 - bit));
+          }
+          bytes.push(val);
+        }
+      }
+    }
+    return bytes;
+  }
+
+  function exportCode() {
+    let name = nameInput.value.trim().replace(/[^a-zA-Z0-9_]/g, '_');
+    if (!name) name = 'my_icon';
+    
+    const format = formatSel.value;
+    const transpose = transposeChk.checked;
+    const bytes = packBytes(format, transpose);
+    if (!bytes.length) { codeOutput.value = '// Нет данных'; return; }
+
+    let fmtLabel = '';
+    if (format === 'h_msb') fmtLabel = 'Горизонтальная, MSB first (Adafruit_GFX, TFT_eSPI, U8g2)';
+    else if (format === 'h_lsb') fmtLabel = 'Горизонтальная, LSB first (XBM-совместимый формат)';
+    else fmtLabel = 'Вертикальная, MSB first (SSD1306, OLED 128x64, SH1106)';
+    if (transpose) fmtLabel += ' [Транспонировано 90°]';
+
+    const lineLen = format.startsWith('v') ? W : Math.ceil(W / 8);
+    let hexStr = '';
+    for (let i = 0; i < bytes.length; i++) {
+      hexStr += '0x' + bytes[i].toString(16).toUpperCase().padStart(2, '0');
+      if (i < bytes.length - 1) hexStr += ', ';
+      if ((i + 1) % lineLen === 0 && i < bytes.length - 1) hexStr += '\n  ';
+    }
+
+    codeOutput.value = `// ${fmtLabel}\n// Размер: ${W}x${H} px | Байт: ${bytes.length}\nconst uint8_t ${name}[] PROGMEM = {\n  ${hexStr}\n};`;
+  }
+
+  document.querySelectorAll('.mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const w = parseInt(btn.dataset.w);
+      document.getElementById('custom-size').style.display = w === 0 ? 'inline-flex' : 'none';
+      if (w > 0) initGrid(w, parseInt(btn.dataset.h));
+      else applySize();
+    });
+  });
+
+  function applySize() {
+    initGrid(parseInt(document.getElementById('cust-w').value) || 32, parseInt(document.getElementById('cust-h').value) || 32);
+  }
+
+  async function copyCode() {
+    try { await navigator.clipboard.writeText(codeOutput.value); alert('Скопировано'); }
+    catch { codeOutput.select(); document.execCommand('copy'); alert('Скопировано'); }
+  }
+
+  function downloadCode() {
+    let name = nameInput.value.trim().replace(/[^a-zA-Z0-9_]/g, '_') || 'icon';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([codeOutput.value], { type: 'text/plain' }));
+    a.download = `${name}.h`; a.click();
+  }
+
+  initGrid(8, 8);
+</script>
+</body>
+</html>
